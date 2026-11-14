@@ -123,7 +123,7 @@ client.on('interactionCreate', async (i) => {
     // ผู้เล่นกดปุ่ม "ยืนยันตัวตน" -> เปิดฟอร์ม
     if (i.isButton() && i.customId === 'verify_open') {
       if (i.member.roles.cache.has(VERIFIED_ROLE_ID)) {
-        return i.reply({ content: 'คุณยืนยันตัวตนไปแล้ว ✅', flags: MessageFlags.Ephemeral });
+        return i.reply({ content: 'ยืนยันตัวตนไปแล้ว ✅', flags: MessageFlags.Ephemeral });
       }
       const db = loadDb();
       if (db[i.user.id]) {
