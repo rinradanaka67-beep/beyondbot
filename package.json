@@ -1,0 +1,16 @@
+{
+  "name": "discord-verify-bot",
+  "version": "1.0.0",
+  "description": "Discord verify bot: button -> form (Name, SteamID, DiscordID) -> admin approval -> role",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.28.1",
+    "dotenv": "^16.6.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
