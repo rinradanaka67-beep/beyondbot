@@ -25,8 +25,14 @@ const {
 } = process.env;
 
 for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ADMIN_CHANNEL_ID, VERIFIED_ROLE_ID })) {
-  if (!v) {
-    console.error(`ขาดค่า ${k} ในไฟล์ .env`);
+  if (!v || !v.trim()) {
+    console.error(`❌ ขาดค่า ${k} กรุณาตั้งค่าใน Environment ของ Render หรือไฟล์ .env`);
+    process.exit(1);
+  }
+}
+for (const [k, v] of Object.entries({ GUILD_ID, ADMIN_CHANNEL_ID, VERIFIED_ROLE_ID })) {
+  if (!/^\\d{17,20}$/.test(v)) {
+    console.error(`❌ ค่า ${k} ต้องเป็น Discord ID ตัวเลข 17-20 หลัก`);
     process.exit(1);
   }
 }
@@ -34,16 +40,28 @@ for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ADMIN_CHANNEL_ID,
 const adminRoleIds = ADMIN_ROLE_IDS.split(',').map((s) => s.trim()).filter(Boolean);
 
 // ---------- เก็บคำขอที่รออยู่ (กันกดซ้ำ + ทนต่อการรีสตาร์ท) ----------
-const DB_FILE = path.join(__dirname, 'pending.json');
+// Render: ตั้ง PENDING_FILE=/var/data/pending.json และผูก Persistent Disk ที่ /var/data
+// Local: ใช้ pending.json ในโฟลเดอร์โปรเจกต์
+const DB_FILE = process.env.PENDING_FILE || path.join(__dirname, 'pending.json');
+
 function loadDb() {
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  } catch {
+    const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error('อ่านฐานข้อมูลคำขอไม่สำเร็จ:', err.message);
+    }
     return {};
   }
 }
+
 function saveDb(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+  const dir = path.dirname(DB_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  const tempFile = `${DB_FILE}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(db, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tempFile, DB_FILE);
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -116,8 +134,9 @@ client.on('interactionCreate', async (i) => {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('verify_open').setLabel('ยืนยันตัวตน').setStyle(ButtonStyle.Primary).setEmoji('✅'),
       );
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
       await i.channel.send({ embeds: [embed], components: [row] });
-      return i.reply({ content: 'ส่งแผง Verify เรียบร้อย', flags: MessageFlags.Ephemeral });
+      return i.editReply({ content: 'ส่งแผง Verify เรียบร้อย' });
     }
 
     // ผู้เล่นกดปุ่ม "ยืนยันตัวตน" -> เปิดฟอร์ม
@@ -177,20 +196,26 @@ client.on('interactionCreate', async (i) => {
       }
 
       const data = { userId: i.user.id, userTag: i.user.tag, name, steamId, discordId };
-      const channel = await client.channels.fetch(ADMIN_CHANNEL_ID);
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`approve:${i.user.id}`).setLabel('อนุมัติ').setStyle(ButtonStyle.Success).setEmoji('✅'),
-        new ButtonBuilder().setCustomId(`reject:${i.user.id}`).setLabel('ปฏิเสธ').setStyle(ButtonStyle.Danger).setEmoji('❌'),
-      );
-      const msg = await channel.send({ embeds: [requestEmbed(data)], components: [row] });
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
 
-      db[i.user.id] = { ...data, messageId: msg.id };
-      saveDb(db);
+      try {
+        const channel = await client.channels.fetch(ADMIN_CHANNEL_ID);
+        if (!channel || !channel.isTextBased() || !channel.send) {
+          throw new Error('ADMIN_CHANNEL_ID ไม่ใช่ห้องข้อความที่บอทส่งข้อความได้');
+        }
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`approve:${i.user.id}`).setLabel('อนุมัติ').setStyle(ButtonStyle.Success).setEmoji('✅'),
+          new ButtonBuilder().setCustomId(`reject:${i.user.id}`).setLabel('ปฏิเสธ').setStyle(ButtonStyle.Danger).setEmoji('❌'),
+        );
+        const msg = await channel.send({ embeds: [requestEmbed(data)], components: [row] });
 
-      return i.reply({
-        content: 'ส่งคำขอเรียบร้อย ✅ กรุณารอแอดมินตรวจสอบ',
-        flags: MessageFlags.Ephemeral,
-      });
+        db[i.user.id] = { ...data, messageId: msg.id };
+        saveDb(db);
+        return i.editReply({ content: 'ส่งคำขอเรียบร้อย ✅ กรุณารอแอดมินตรวจสอบ' });
+      } catch (err) {
+        console.error('ส่งคำขอ Verify ไม่สำเร็จ:', err);
+        return i.editReply({ content: '❌ ส่งคำขอไม่สำเร็จ กรุณาแจ้งแอดมินตรวจสอบการตั้งค่า ADMIN_CHANNEL_ID และสิทธิ์บอท' });
+      }
     }
 
     // แอดมินกดอนุมัติ / ปฏิเสธ
@@ -251,4 +276,16 @@ client.on('interactionCreate', async (i) => {
   }
 });
 
-client.login(DISCORD_TOKEN);
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  process.exit(1);
+});
+
+client.login(DISCORD_TOKEN).catch((err) => {
+  console.error('❌ เข้าสู่ระบบ Discord ไม่สำเร็จ ตรวจสอบ DISCORD_TOKEN:', err.message);
+  process.exit(1);
+});

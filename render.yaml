@@ -1,0 +1,23 @@
+services:
+  - type: worker
+    name: beyondbot
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    disk:
+      name: beyondbot-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: ADMIN_CHANNEL_ID
+        sync: false
+      - key: VERIFIED_ROLE_ID
+        sync: false
+      - key: ADMIN_ROLE_IDS
+        sync: false
+      - key: PENDING_FILE
+        value: /var/data/pending.json
