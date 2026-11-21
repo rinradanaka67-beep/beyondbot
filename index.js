@@ -17,12 +17,19 @@ const {
 } = require('discord.js');
 
 const {
-  DISCORD_TOKEN,
-  GUILD_ID,
-  ADMIN_CHANNEL_ID,
-  VERIFIED_ROLE_ID,
-  ADMIN_ROLE_IDS = '',
+  DISCORD_TOKEN: rawDiscordToken,
+  GUILD_ID: rawGuildId,
+  ADMIN_CHANNEL_ID: rawAdminChannelId,
+  VERIFIED_ROLE_ID: rawVerifiedRoleId,
+  ADMIN_ROLE_IDS: rawAdminRoleIds = '',
 } = process.env;
+
+// Normalize Render Environment values (remove accidental surrounding spaces).
+const DISCORD_TOKEN = (rawDiscordToken || '').trim();
+const GUILD_ID = (rawGuildId || '').trim();
+const ADMIN_CHANNEL_ID = (rawAdminChannelId || '').trim();
+const VERIFIED_ROLE_ID = (rawVerifiedRoleId || '').trim();
+const ADMIN_ROLE_IDS = rawAdminRoleIds.trim();
 
 for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ADMIN_CHANNEL_ID, VERIFIED_ROLE_ID })) {
   if (!v || !v.trim()) {
@@ -31,7 +38,7 @@ for (const [k, v] of Object.entries({ DISCORD_TOKEN, GUILD_ID, ADMIN_CHANNEL_ID,
   }
 }
 for (const [k, v] of Object.entries({ GUILD_ID, ADMIN_CHANNEL_ID, VERIFIED_ROLE_ID })) {
-  if (!/^\\d{17,20}$/.test(v)) {
+  if (!/^\d{17,20}$/.test(v.trim())) {
     console.error(`❌ ค่า ${k} ต้องเป็น Discord ID ตัวเลข 17-20 หลัก`);
     process.exit(1);
   }
