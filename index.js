@@ -252,11 +252,67 @@ client.on('interactionCreate', async (i) => {
           });
         }
         try {
-          await member.roles.add(VERIFIED_ROLE_ID, `Verify อนุมัติโดย ${adminTag}`);
+          // ตรวจสอบ Role และสิทธิ์ของบอทก่อนมอบยศ เพื่อแจ้งสาเหตุให้ตรงจุด
+          const verifiedRole = await i.guild.roles.fetch(VERIFIED_ROLE_ID).catch(() => null);
+          if (!verifiedRole) {
+            return i.followUp({
+              content: `❌ ไม่พบยศ Verified ในเซิร์ฟเวอร์นี้ (VERIFIED_ROLE_ID: ${VERIFIED_ROLE_ID}) กรุณาตรวจสอบ ID ยศใน Railway Variables`,
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          const botMember = await i.guild.members.fetchMe();
+          if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
+            return i.followUp({
+              content: '❌ บอทไม่มีสิทธิ์ Manage Roles กรุณาเปิดสิทธิ์นี้ให้ Role ของบอทใน Server Settings → Roles',
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          if (verifiedRole.managed) {
+            return i.followUp({
+              content: '❌ ยศ Verified นี้เป็น Managed Role จึงไม่สามารถมอบให้สมาชิกด้วยบอทได้ กรุณาใช้ยศปกติ',
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          if (!verifiedRole.editable) {
+            return i.followUp({
+              content: '❌ บอทไม่สามารถจัดการยศ Verified ได้ กรุณาลาก Role ของบอทให้อยู่สูงกว่า Verified ใน Server Settings → Roles แล้วลองใหม่',
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          if (!member.manageable) {
+            return i.followUp({
+              content: '❌ บอทไม่สามารถจัดการสมาชิกคนนี้ได้ ตรวจสอบลำดับ Role ของบอทเทียบกับ Role สูงสุดของสมาชิก',
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+
+          await member.roles.add(verifiedRole, `Verify approved by ${adminTag}`);
         } catch (err) {
-          console.error(err);
+          const discordCode = err?.code ?? err?.rawError?.code ?? 'UNKNOWN';
+          console.error('มอบยศ Verified ไม่สำเร็จ:', {
+            code: discordCode,
+            message: err?.message,
+            status: err?.status,
+            method: err?.method,
+            url: err?.url,
+          });
+
+          let reason = 'เกิดข้อผิดพลาดจาก Discord';
+          if (Number(discordCode) === 50013) reason = 'Missing Permissions: บอทไม่มีสิทธิ์ หรือ Role ของบอทอยู่ต่ำกว่า Verified';
+          else if (Number(discordCode) === 10011) reason = 'Unknown Role: ไม่พบ VERIFIED_ROLE_ID นี้ในเซิร์ฟเวอร์';
+          else if (Number(discordCode) === 10007) reason = 'Unknown Member: ไม่พบสมาชิกเป้าหมายในเซิร์ฟเวอร์';
+          else if (Number(discordCode) === 50001) reason = 'Missing Access: บอทไม่มีสิทธิ์เข้าถึงเซิร์ฟเวอร์หรือสมาชิก';
+
           return i.followUp({
-            content: '❌ ให้ยศไม่สำเร็จ ตรวจสอบว่ายศของบอทอยู่สูงกว่ายศ Verified และมีสิทธิ์ Manage Roles',
+            content: `❌ ให้ยศไม่สำเร็จ
+สาเหตุ: ${reason}
+รหัสข้อผิดพลาด: ${discordCode}
+
+คำขอยังอยู่ในระบบ คุณสามารถแก้สิทธิ์แล้วกดอนุมัติซ้ำได้`,
             flags: MessageFlags.Ephemeral,
           });
         }
