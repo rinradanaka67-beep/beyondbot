@@ -1,0 +1,24 @@
+{
+  "name": "hsho-discord-verify-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Discord Verify Bot - button + modal for Discord Name and SteamID. Credit: BY NONGCHE",
+  "author": "BY NONGCHE",
+  "license": "UNLICENSED",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "deploy:commands": "node scripts/deploy-commands.js",
+    "fetch:app-id": "node scripts/fetch-app-id.js",
+    "test": "node scripts/test-local.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.22.1",
+    "dotenv": "^16.6.1"
+  }
+}
