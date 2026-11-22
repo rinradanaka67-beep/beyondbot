@@ -71,6 +71,51 @@ function saveDb(db) {
   fs.renameSync(tempFile, DB_FILE);
 }
 
+// ---------- Server Status storage ----------
+const STATUS_FILE = process.env.STATUS_FILE || path.join(__dirname, 'server-status.json');
+function loadStatus() {
+  const defaults = { status: 'OFFLINE', version: 'ไม่ระบุ', updatedAt: new Date().toISOString(), channelId: null, messageId: null };
+  try {
+    const saved = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8'));
+    return { ...defaults, ...saved };
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.error('อ่าน Server Status ไม่สำเร็จ:', err.message);
+    return defaults;
+  }
+}
+function saveStatus(status) {
+  const dir = path.dirname(STATUS_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  const tempFile = `${STATUS_FILE}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(status, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tempFile, STATUS_FILE);
+}
+function buildStatusEmbed(statusData) {
+  const colors = { ONLINE: 0x2ecc71, OFFLINE: 0xe74c3c, 'UNDER MAINTENANCE': 0xf1c40f };
+  const date = new Date(statusData.updatedAt);
+  const lastUpdate = Number.isNaN(date.getTime()) ? 'ไม่ทราบ' : new Intl.DateTimeFormat('th-TH', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok'
+  }).format(date);
+  return new EmbedBuilder()
+    .setColor(colors[statusData.status] ?? 0x5865f2)
+    .setTitle('HOME SWEET HOME SOCOOL')
+    .addFields(
+      { name: 'Server-Status', value: statusData.status, inline: true },
+      { name: 'Version', value: String(statusData.version || 'ไม่ระบุ'), inline: true },
+      { name: 'Last Update', value: lastUpdate, inline: true },
+    )
+    .setFooter({ text: 'HOME SWEET HOME SOCOOL · SERVER STATUS' });
+}
+async function refreshStatusPanel(statusData = loadStatus()) {
+  if (!statusData.channelId || !statusData.messageId) return false;
+  const channel = await client.channels.fetch(statusData.channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) return false;
+  const message = await channel.messages.fetch(statusData.messageId).catch(() => null);
+  if (!message) return false;
+  await message.edit({ embeds: [buildStatusEmbed(statusData)] });
+  return true;
+}
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 // ---------- ตัวช่วย ----------
@@ -123,19 +168,77 @@ client.once('clientReady', async () => {
       .setDescription('ส่งแผงปุ่ม Verify ลงในห้องนี้')
       .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
       .toJSON(),
+    new SlashCommandBuilder()
+      .setName('setup-status')
+      .setDescription('สร้างแผง Server-Status ในห้องนี้')
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName('set-status')
+      .setDescription('เปลี่ยนสถานะและเวอร์ชันของเกม')
+      .addStringOption(option => option.setName('status').setDescription('สถานะเซิร์ฟเวอร์').setRequired(true)
+        .addChoices(
+          { name: 'ONLINE', value: 'ONLINE' },
+          { name: 'OFFLINE', value: 'OFFLINE' },
+          { name: 'UNDER MAINTENANCE', value: 'UNDER MAINTENANCE' },
+        ))
+      .addStringOption(option => option.setName('version').setDescription('เวอร์ชันเกม เช่น 1.0.0.7').setRequired(true).setMaxLength(32))
+      .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName('server-status')
+      .setDescription('ดูสถานะ Home Sweet Home SOCOOL')
+      .toJSON(),
   ]);
   console.log(`บอทออนไลน์ในชื่อ ${client.user.tag}`);
+  // Restore the existing status panel after a bot restart.
+  refreshStatusPanel().catch(err => console.error('อัปเดต Server Status panel ไม่สำเร็จ:', err.message));
 });
 
 // ---------- จัดการ Interaction ----------
 client.on('interactionCreate', async (i) => {
   try {
+    // /setup-status: create or replace the status panel in this channel
+    if (i.isChatInputCommand() && i.commandName === 'setup-status') {
+      if (!isAdmin(i.member)) return i.reply({ content: '⛔ เฉพาะแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
+      const statusData = loadStatus();
+      const message = await i.channel.send({ embeds: [buildStatusEmbed(statusData)] });
+      statusData.channelId = i.channelId;
+      statusData.messageId = message.id;
+      saveStatus(statusData);
+      return i.editReply({ content: 'สร้างแผง HOME SWEET HOME SOCOOL Server-Status เรียบร้อยแล้ว' });
+    }
+
+    // /set-status: admin manually publishes the verified status and version
+    if (i.isChatInputCommand() && i.commandName === 'set-status') {
+      if (!isAdmin(i.member)) return i.reply({ content: '⛔ เฉพาะแอดมินเท่านั้น', flags: MessageFlags.Ephemeral });
+      await i.deferReply({ flags: MessageFlags.Ephemeral });
+      const statusData = loadStatus();
+      statusData.status = i.options.getString('status', true);
+      statusData.version = i.options.getString('version', true).trim();
+      statusData.updatedAt = new Date().toISOString();
+      saveStatus(statusData);
+      const updated = await refreshStatusPanel(statusData).catch(err => {
+        console.error('อัปเดต Server Status panel ไม่สำเร็จ:', err);
+        return false;
+      });
+      return i.editReply({ content: updated
+        ? `อัปเดต Server-Status เป็น ${statusData.status} · Version ${statusData.version} แล้ว`
+        : 'บันทึกสถานะแล้ว แต่ยังไม่มีแผง Server-Status หรือไม่พบข้อความเดิม ให้ใช้ /setup-status ก่อน' });
+    }
+
+    // /server-status: show current status
+    if (i.isChatInputCommand() && i.commandName === 'server-status') {
+      return i.reply({ embeds: [buildStatusEmbed(loadStatus())], flags: MessageFlags.Ephemeral });
+    }
+
     // /setup-verify
     if (i.isChatInputCommand() && i.commandName === 'setup-verify') {
       const embed = new EmbedBuilder()
-        .setTitle('🔐 ยืนยันตัวตน')
+        .setTitle('HOME SWEET HOME SOCOOL · VERIFY')
         .setDescription(
-          'กดปุ่มด้านล่างเพื่อกรอกข้อมูล **Name / SteamID / DiscordID**\nหลังจากนั้นรอแอดมินตรวจสอบและอนุมัติ คุณจะได้รับยศอัตโนมัติ',
+          'กดปุ่มด้านล่างเพื่อกรอกข้อมูล **Name / SteamID / DiscordID**\nแอดมินจะตรวจสอบคำขอและกดอนุมัติ เพื่อมอบยศ Verified ให้โดยอัตโนมัติ',
         )
         .setColor(0x5865f2);
       const row = new ActionRowBuilder().addComponents(
