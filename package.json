@@ -15,7 +15,9 @@
     "dev": "node --watch index.js",
     "deploy:commands": "node scripts/deploy-commands.js",
     "fetch:app-id": "node scripts/fetch-app-id.js",
-    "test": "node scripts/test-local.js"
+    "test": "node scripts/test-local.js && node scripts/test-sheets.js",
+    "test:sheets": "node scripts/test-sheets.js",
+    "sheets:test": "node scripts/test-connection.js"
   },
   "dependencies": {
     "discord.js": "^14.22.1",

@@ -27,6 +27,12 @@ const commands = [
     .toJSON(),
 
   new SlashCommandBuilder()
+    .setName('verify-pending')
+    .setDescription('ดูคำขอ Verify ที่รอแอดมินอนุมัติ (admin)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .toJSON(),
+
+  new SlashCommandBuilder()
     .setName('verify-export')
     .setDescription('ดาวน์โหลดไฟล์ SteamID ทั้งหมด (admin)')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)

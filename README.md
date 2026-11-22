@@ -2,9 +2,9 @@
 
 บอท Verify สำหรับ Discord **เขียนใหม่ทั้งหมด** (ไม่ได้นำโค้ดใครมาแก้)
 
-**การทำงาน:** สมาชิกกดปุ่ม **Verify** → กรอก **Discord Name** + **SteamID** → บอทบันทึก SteamID ทั้งหมดลงไฟล์ภายในเครื่อง
+**การทำงาน:** สมาชิกกดปุ่ม **Verify** → กรอก **Name / DiscordID / SteamID** → **แอดมินกด อนุมัติ หรือ ปฏิเสธ** → เฉพาะรายการที่อนุมัติแล้วจะถูกบันทึก SteamID ลงไฟล์ **และ Google Sheets**
 
-> ไม่ต้องเชื่อม HSHO API 
+> ไม่ต้องเชื่อม HSHO API (ตามที่คุณต้องการ) · เซฟทั้งในเครื่อง **และ** Google Sheets (เลือกได้)
 
 ---
 
@@ -37,6 +37,59 @@ timestamp,name,discord_id,steam_id,discord_user_id
 }
 ```
 
+### `data/pending.json`
+คำขอที่รออนุมัติ/ตัดสินแล้ว (status = `pending` / `approved` / `rejected`) พร้อมเหตุผลปฏิเสธ
+
+> **เฉพาะคำขอที่แอดมินอนุมัติเท่านั้น** จะถูกเขียนลง `steamids.txt`, `verifications.csv`, `verifications.json`
+
+---
+
+## 1.1 เซฟลง Google Sheets (ไม่บังคับ)
+
+บอทจะส่งข้อมูลไป Google Sheets ผ่าน **Apps Script Web App** (ไม่ต้องใช้ Service Account / OAuth / ไม่ต้อง install library เพิ่ม)
+
+**ข้อมูลที่ขึ้น sheet** (1 แถวต่อ 1 คำขอ):
+
+| คอลัมน์ | ความหมาย |
+|---|---|
+| `id` | รหัสคำขอ (ใช้อัปเดตแถวเดิม ไม่เพิ่มแถวซ้ำ) |
+| `at` | เวลาที่กรอก |
+| `status` | `pending` → `approved` / `rejected` |
+| `name` | Name ที่ผู้เล่นกรอก |
+| `discord_id` | DiscordID |
+| `steam_id` | SteamID |
+| `discord_user_id` | Discord user ID จริงของคนกดปุ่ม |
+| `username` | ชื่อผู้ใช้ Discord ตอนกด |
+| `guild_id` | Server ID |
+| `decided_at` / `decided_by` / `reason` | ผลตัดสินของแอดมิน |
+
+### ตั้งค่าครั้งเดียว (ทำตามลำดับ)
+
+1. สร้าง **Google Sheets** เปล่า ๆ (ชื่ออะไรก็ได้)
+2. เมนู **Extensions → Apps Script**
+3. ลบโค้ดเดิมทั้งหมด แล้ววางโค้ดจากไฟล์ **`scripts/google-apps-script.gs`** ลงไป (กด **Save**)
+4. ในโค้ดบรรทัด `const SECRET = 'nongche-verify-2026'` ต้อง **ตรงกับ** `GOOGLE_SHEETS_SECRET` ใน `.env`
+5. กด **Deploy → New deployment** → เลือก **Web app**
+   - Execute as: **Me**
+   - Who has access: **Anyone**
+6. กด **Deploy** → ถ้าขึ้น Review permissions ให้เลือกบัญชี → **Advanced → Go to (ชื่อแอป) → Allow**
+7. **Copy Web app URL** (ลงท้ายด้วย `/exec`) ไปใส่ใน `.env`:
+   ```dotenv
+   GOOGLE_SHEETS_URL=https://script.google.com/macros/s/...../exec
+   GOOGLE_SHEETS_SECRET=nongche-verify-2026
+   ```
+8. ทดสอบการเชื่อมต่อ:
+   ```powershell
+   npm run sheets:test
+   ```
+   ถ้าขึ้น `[OK]` ให้ไปดูแถว `status = connected` ใน sheet ได้เลย
+9. **Restart บอท** เพื่อโหลดค่าใหม่
+
+### พฤติกรรมสำคัญ
+- ถ้า **เว้น `GOOGLE_SHEETS_URL` ไว้ว่าง** → บอททำงานแบบเดิม (เซฟเฉพาะไฟล์ในเครื่อง)
+- ถ้า **Google Sheets พัง/ช้า** → บอทจะ retry 3 ครั้งแล้ว log เตือน แต่ **การอนุมัติและไฟล์ในเครื่องยังทำงานปกติ** (ไม่มีทางเสียข้อมูล)
+- ตอนสมาชิกกรอก → ได้แถว `pending` / ตอนแอดมินตัดสิน → **แถวเดิมถูกอัปเดต** เป็น `approved` หรือ `rejected`
+
 ---
 
 ## 2. ติดตั้งและรัน
@@ -47,7 +100,7 @@ npm install
 npm test
 ```
 
-ผลที่คาด: **24 passed, 0 failed** (ทดสอบฟอร์ม 3 ช่อง + ระบบเขียนไฟล์โดยไม่ต้องใช้ token จริง)
+ผลที่คาด: **37 passed + 15 passed** (ทดสอบฟอร์ม 3 ช่อง, ระบบเขียนไฟล์, อนุมัติ/ปฏิเสธ และ Google Sheets ด้วย mock webhook — ไม่ต้องใช้ token จริง)
 
 ---
 
@@ -95,6 +148,9 @@ npm start
 
 ถ้าขึ้น `Logged in as ...` แสดงว่าพร้อมใช้งาน ✅
 
+> **สำคัญ:** เปิดบอท **แค่ 1 ตัว** ครับ ถ้ารัน `npm start` / `npm run dev` ซ้ำจะถูกบล็อก
+> (มี lock กันอยู่) เพราะ 2 ตัวตอบ interaction เดียวกันจะเกิด error `40060` ครับ
+
 ---
 
 ## 5. ใช้งานใน Discord
@@ -102,8 +158,9 @@ npm start
 | คำสั่ง | ใครใช้ได้ | รายละเอียด |
 |---|---|---|
 | `/setup` | Manage Server | ส่ง panel พร้อมปุ่ม **Verify** ไปยังช่องที่ระบุ (หรือ `VERIFY_CHANNEL_ID`) |
-| `/verify-stats` | Manage Server | ดูจำนวน SteamID, จำนวนไม่ซ้ำ, รายการล่าสุด 10 คน |
-| `/verify-export` | Manage Server | ดาวน์โหลด `steamids.txt`, `verifications.csv`, `verifications.json` |
+| `/verify-pending` | Manage Server | ดูคำขอที่รออนุมัติ พร้อมปุ่มอนุมัติ/ปฏิเสธ |
+| `/verify-stats` | Manage Server | ดูจำนวน SteamID ที่อนุมัติแล้ว, ไม่ซ้ำ, จำนวนรออนุมัติ, รายการล่าสุด 10 คน |
+| `/verify-export` | Manage Server | ดาวน์โหลด `steamids.txt`, `verifications.csv`, `verifications.json`, `pending.json` |
 
 **ขั้นตอนของสมาชิก:**
 1. กดปุ่ม ✅ **Verify**
@@ -111,8 +168,15 @@ npm start
    - **Name** → ชื่อของผู้เล่น
    - **DiscordID** → บอทใส่ Discord ID ของคนกดปุ่มไว้ให้แล้ว (แก้ได้)
    - **SteamID** → ตัวเลข 15–20 หลัก (เช่น `76561198000000000`)
-3. กด **ส่ง**
-4. บอทตอบกลับแบบส่วนตัว: Name, DiscordID, SteamID, ลำดับที่ และยศที่ได้รับ (ถ้าตั้งค่า)
+3. กด **ส่ง** → บอทตอบกลับแบบส่วนตัวว่า **ส่งให้แอดมินอนุมัติแล้ว** (ยังไม่บันทึกไฟล์)
+4. รอผลทาง DM
+
+**ขั้นตอนของแอดมิน:**
+1. ที่ช่อง `APPROVAL_CHANNEL_ID` จะมีข้อความที่รออนุมัติพร้อมปุ่ม ✅ **อนุมัติ** / ❌ **ปฏิเสธ**
+   - หรือพิมพ์ `/verify-pending` เพื่อดูรายการพร้อมปุ่มกด
+2. กด **อนุมัติ** → SteamID ถูกเขียนลงไฟล์, เพิ่มยศ (ถ้าตั้งค่า), สมาชิกได้ DM แจ้งว่าผ่าน
+3. กด **ปฏิเสธ** → ใส่เหตุผลได้ → ไม่เขียนไฟล์, สมาชิกได้ DM แจ้งเหตุผล
+4. กดซ้ำไม่ได้ (ระบบกันอนุมัติซ้ำ)
 
 ---
 
@@ -125,7 +189,10 @@ npm start
 | `GUILD_ID` | Server ID (บังคับสำหรับ deploy คำสั่ง) |
 | `VERIFY_ROLE_ID` | ยศที่ให้หลัง verify (ว่าง = ไม่เพิ่มยศ) |
 | `VERIFY_CHANNEL_ID` | ช่องที่ `/setup` ส่ง panel ไป (ว่าง = ช่องที่พิมพ์คำสั่ง) |
+| `APPROVAL_CHANNEL_ID` | **ช่องที่แอดมินกดอนุมัติ/ปฏิเสธ** (แนะนำเป็นห้องแอดมิน) |
 | `LOG_CHANNEL_ID` | ช่องส่ง log ทุกครั้งที่มีคน verify (ว่าง = ไม่ส่ง) |
+| `GOOGLE_SHEETS_URL` | Web app URL จาก Apps Script (ว่าง = ไม่ส่ง Sheets) |
+| `GOOGLE_SHEETS_SECRET` | รหัสลับกันคนอื่นยิง webhook (ต้องตรงกับใน `.gs`) |
 | `DATA_DIR` | ที่เก็บไฟล์ (default `./data`) |
 | `PANEL_TITLE` / `PANEL_DESCRIPTION` | ข้อความบน embed |
 
@@ -140,15 +207,24 @@ HSHO_DISCORD_VERIFY_BOT/
 │   ├── config.js
 │   ├── events/
 │   │   ├── ready.js
-│   │   └── interaction-create.js # button / modal / slash commands
+│   │   └── interaction-create.js # button / modal / slash commands + อนุมัติ/ปฏิเสธ
 │   ├── services/
-│   │   └── verification.service.js # เขียนไฟล์ Name / DiscordID / SteamID (มี lock กันเขียนพร้อมกัน)
+│   │   ├── verification.service.js # เขียนไฟล์เฉพาะที่อนุมัติแล้ว
+│   │   ├── pending.service.js      # คิวคำขอรออนุมัติ + กันกดซ้ำ
+│   │   └── google-sheets.service.js # ส่งข้อมูลเข้า Google Sheets (retry + fail-safe)
 │   └── ui/
 │       ├── panel.js          # Embed + ปุ่ม Verify
-│       └── verify-modal.js   # ฟอร์ม 3 ช่อง Name / DiscordID / SteamID
+│       ├── verify-modal.js   # ฟอร์ม 3 ช่อง Name / DiscordID / SteamID
+│       └── approval-panel.js # ปุ่ม อนุมัติ/ปฏิเสธ สำหรับแอดมิน
 ├── scripts/
 │   ├── deploy-commands.js
-│   └── test-local.js
+│   ├── fetch-app-id.js
+│   ├── list-guilds.js
+│   ├── send-panel.js
+│   ├── google-apps-script.gs       # <- copy วางใน Apps Script
+│   ├── test-connection.js
+│   ├── test-local.js
+│   └── test-sheets.js
 ├── data/                         # สร้างตอนรัน (ถูก .gitignore)
 ├── .env / .env.example
 └── README.md

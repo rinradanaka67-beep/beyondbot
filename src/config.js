@@ -21,6 +21,9 @@ const config = Object.freeze({
   verifyRoleId: clean(process.env.VERIFY_ROLE_ID),
   verifyChannelId: clean(process.env.VERIFY_CHANNEL_ID),
   logChannelId: clean(process.env.LOG_CHANNEL_ID),
+  approvalChannelId: clean(process.env.APPROVAL_CHANNEL_ID),
+  googleSheetsUrl: clean(process.env.GOOGLE_SHEETS_URL),
+  googleSheetsSecret: clean(process.env.GOOGLE_SHEETS_SECRET),
   dataDir: path.resolve(__dirname, '..', clean(process.env.DATA_DIR, 'data')),
   panelTitle: clean(process.env.PANEL_TITLE, '✅ Verify SteamID'),
   panelDescription: clean(

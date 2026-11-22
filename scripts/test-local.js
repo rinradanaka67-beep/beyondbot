@@ -11,7 +11,9 @@ const testDir = path.join(os.tmpdir(), `hsho-verify-test-${Date.now()}`);
 process.env.DATA_DIR = testDir;
 
 const verification = require('../src/services/verification.service');
+const pending = require('../src/services/pending.service');
 const { buildPanel } = require('../src/ui/panel');
+const { buildApprovalPanel, buildApprovalList } = require('../src/ui/approval-panel');
 const { buildVerifyModal } = require('../src/ui/verify-modal');
 const { config } = require('../src/config');
 
@@ -86,6 +88,47 @@ async function main() {
     JSON.stringify(ids) === JSON.stringify(['verify_name', 'verify_discord_id', 'verify_steam_id']), ids);
   check('DiscordID ถูกใส่ค่าไว้ล่วงหน้า',
     modal.components[1].components[0].value === '123456789012345678', modal.components[1]);
+
+  // ---------------- pending / อนุมัติ ----------------
+  const req1 = await pending.createPending({
+    name: 'Pending One', discordId: '111111111111111111',
+    steamId: '79533333333333333', userId: '111111111111111111',
+    username: 'pendingone', guildId: '999999999999999999',
+  });
+  const req2 = await pending.createPending({
+    name: 'Pending Two', discordId: '222222222222222222',
+    steamId: '79544444444444444', userId: '222222222222222222',
+    username: 'pendingtwo', guildId: '999999999999999999',
+  });
+  check('สร้างคำขอ pending', (await pending.listPending()).length === 2);
+  check('pending เริ่มต้นที่ status=pending', req1.status === 'pending', req1);
+
+  const approved = await pending.decide(req1.id, { approved: true, adminId: 'admin-001' });
+  check('อนุมัติ -> สถานะ approved', approved.request.status === 'approved', approved.request);
+  const afterApprove = await verification.stats();
+  check('อนุมัติแล้วเขียน SteamID ลงไฟล์', afterApprove.total === 3, afterApprove.total);
+  check('SteamID ที่อนุมัติอยู่ใน steamids.txt',
+    (await fs.readFile(verification.FILES.steam, 'utf8')).includes('79533333333333333'));
+
+  let duplicateError = '';
+  try { await pending.decide(req1.id, { approved: true, adminId: 'admin-002' }); }
+  catch (error) { duplicateError = error.message; }
+  check('อนุมัติซ้ำถูกปฏิเสธ', duplicateError === 'ALREADY_DECIDED', duplicateError);
+
+  const rejected = await pending.decide(req2.id, {
+    approved: false, adminId: 'admin-001', reason: 'ข้อมูลไม่ตรง',
+  });
+  check('ปฏิเสธ -> สถานะ rejected', rejected.request.status === 'rejected', rejected.request);
+  check('เก็บเหตุผลปฏิเสธ', rejected.request.reason === 'ข้อมูลไม่ตรง', rejected.request);
+  const afterReject = await verification.stats();
+  check('ปฏิเสธแล้วไม่เขียน SteamID', afterReject.total === 3, afterReject.total);
+  check('ไม่มีคำขอรออนุมัติเหลือ', (await pending.listPending()).length === 0);
+
+  const approvalPanel = buildApprovalPanel(req1).components[0].toJSON();
+  check('panel แอดมินมีปุ่มอนุมัติ', approvalPanel.components[0].custom_id === `verify_approve:${req1.id}`, approvalPanel);
+  check('panel แอดมินมีปุ่มปฏิเสธ', approvalPanel.components[1].custom_id === `verify_reject:${req1.id}`, approvalPanel);
+  const listPanel = buildApprovalList([req1, req2]);
+  check('รายการรออนุมัติมีปุ่มให้กด', listPanel.components[0].toJSON().components.length === 2, listPanel.components.length);
 
   check('dataDir ตั้งตาม env', config.dataDir === testDir, config.dataDir);
 
